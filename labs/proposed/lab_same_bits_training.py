@@ -26,13 +26,17 @@ async def _():
     from mlsysim.labs.experiments.same_bits_training_experiments import (
         COLLECTIVES, WORLD_SIZES, collective_contrast, collective_snapshot,
     )
+    from mlsysim.labs.state import DesignLedger
     from mlsysim.labs.style import COLORS, LAB_CSS, apply_plotly_theme
     from mlsysbook_labs import ACADEMIC_LAB_CSS
     from mlsysbook_labs.experiment_evidence import audit_evidence, capture_evidence
+    ledger = DesignLedger(volume="vol2")
+    if ledger.is_wasm:
+        _loaded = await ledger.load_async()
     return (
         ACADEMIC_LAB_CSS, COLLECTIVES, COLORS, Hardware, LAB_CSS, WORLD_SIZES,
         apply_plotly_theme, audit_evidence, capture_evidence, collective_contrast,
-        collective_snapshot, go, mo,
+        collective_snapshot, go, ledger, mo,
     )
 
 
@@ -76,6 +80,21 @@ def _(COLLECTIVES, WORLD_SIZES, mo):
 
 
 @app.cell
+def _(mo):
+    final_contract = mo.ui.radio(
+        {"Accept order-dependent bits and compare runs within a tolerance": "tolerance",
+         "Pin one collective and one world size for every comparison run": "pin",
+         "Use an order-independent reduction (Parts D and E)": "fixed"},
+        label="Contract you would ship after Part A",
+    )
+    rationale = mo.ui.text_area(
+        label="Decision rationale",
+        placeholder="Cite the saved Part A numbers: how many parameters differ, and between which collectives.",
+    )
+    return final_contract, rationale
+
+
+@app.cell
 def _(a_collective, a_ranks, collective_contrast, collective_snapshot):
     a_all = collective_contrast(ranks=a_ranks.value)
     a_base = collective_snapshot("star", ranks=a_ranks.value)
@@ -107,7 +126,7 @@ def _(
 def _(ACADEMIC_LAB_CSS, LAB_CSS, device, mo, stakeholder):
     css = mo.Html("""
     <style>
-    .pilot-head{background:linear-gradient(135deg,#101827,#1d4f78);color:white;border-radius:14px;padding:clamp(18px,4vw,32px);margin-bottom:14px}.pilot-top{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font:700 .72rem ui-monospace;letter-spacing:.08em}.pilot-head h1{font-size:clamp(1.65rem,5vw,2.65rem);line-height:1.05;margin:16px 0 8px}.pilot-head p{color:#dbeafe;max-width:760px}.pilot-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:9px;margin-top:17px}.pilot-meta div{background:#ffffff14;border:1px solid #ffffff26;padding:9px 11px;border-radius:8px}.pilot-note{color:#475569;font-size:.9rem;line-height:1.5;margin:0;padding:0 2px}.stakeholder{border-left:4px solid #1d4f78;background:#f1f5f9;padding:10px 14px;border-radius:7px;line-height:1.5}.saved{border-left:4px solid #2ca02c;background:#f0fdf4;padding:9px 12px;border-radius:7px}@media(max-width:520px){.pilot-head{border-radius:9px}.pilot-meta{grid-template-columns:1fr}}
+    .pilot-head{background:linear-gradient(135deg,#101827,#1d4f78);color:white;border-radius:14px;padding:clamp(18px,4vw,32px);margin-bottom:14px}.pilot-top{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font:700 .72rem ui-monospace;letter-spacing:.08em}.pilot-head h1{font-size:clamp(1.65rem,5vw,2.65rem);line-height:1.05;margin:16px 0 8px}.pilot-head p{color:#dbeafe;max-width:760px}.pilot-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:9px;margin-top:17px}.pilot-meta div{background:#ffffff14;border:1px solid #ffffff26;padding:9px 11px;border-radius:8px}.pilot-note{color:#475569;font-size:.9rem;line-height:1.5;margin:0;padding:0 2px}.stakeholder{border-left:4px solid #1d4f78;background:#f1f5f9;padding:10px 14px;border-radius:7px;line-height:1.5}.saved{border-left:4px solid #2ca02c;background:#f0fdf4;padding:9px 12px;border-radius:7px}.lab-hud{display:flex;align-items:center;flex-wrap:wrap;column-gap:14px;row-gap:6px;background:#101827!important;color:#fff;padding:14px 18px;border-radius:9px}.lab-hud .hud-label{color:#a7b9cf;margin-right:2px}.lab-hud .hud-value{color:#fff;margin-right:10px}.lab-hud .hud-active{color:#86efac}@media(max-width:520px){.pilot-head{border-radius:9px}.pilot-meta{grid-template-columns:1fr}}
     </style>""")
     header = mo.Html(f"""<section class="pilot-head"><div class="pilot-top"><span>PROPOSED CO-LAB · DISTRIBUTED TRAINING · PART A PROTOTYPE</span><span>ABOUT 8 MIN</span></div><h1>The Same-Bits Contract, Part 2</h1><p>You run the same data-parallel job twice, with the same seed and the same data, and get different weights. Nothing random was sampled. Where did the difference come from, and what does it cost to remove it?</p><div class="pilot-meta"><div><b>Device</b><br>{device.name}</div><div><b>Stakeholder</b><br>{stakeholder}</div><div><b>Number format</b><br>float32 gradients</div><div><b>Deliverable</b><br>A reproducibility contract</div></div></section>""")
     mo.vstack([LAB_CSS, ACADEMIC_LAB_CSS, css, header, mo.Html('<p class="pilot-note">Every number is computed with real IEEE 754 float32 arithmetic, rounded after each addition, with each AllReduce schedule\'s order written out. The gradients are seeded synthetic values, so counts illustrate the mechanism rather than measure a production model.</p>')], gap=0.5)
@@ -118,8 +137,9 @@ def _(ACADEMIC_LAB_CSS, LAB_CSS, device, mo, stakeholder):
 @app.cell
 def _(
     COLORS, a_all, a_base, a_capture, a_collective, a_prediction, a_ranks,
-    a_result, a_sweep, apply_plotly_theme, audit_evidence, get_evidence, go,
-    mo, stakeholder, track_id, upstream, why_bits_matter,
+    a_result, a_sweep, apply_plotly_theme, audit_evidence, final_contract,
+    get_evidence, go, mo, rationale, stakeholder, track_id, upstream,
+    why_bits_matter,
 ):
     _captures = get_evidence()
     audit = audit_evidence(
@@ -180,12 +200,44 @@ def _(
             )}),
         ])
 
-    tabs = mo.ui.tabs({
-        "Part A": build_part_a(),
-        "Parts B–E": mo.md("Parts B–E (world size, drift over training, fixed reduction trees, integer accumulation) and the synthesis follow once Part A has been reviewed."),
-    })
+    def build_synthesis():
+        capture = _captures.get("A")
+        status = "CURRENT" if capture and audit.complete else ("STALE" if capture else "MISSING")
+        _complete = audit.complete and final_contract.value is not None and bool(rationale.value.strip())
+        return mo.vstack([
+            mo.md(f"### Synthesis · Choose a reproducibility contract (prototype)\nAdvise the **{stakeholder.lower()}** using the Part A evidence. Parts B–E (world size, drift over training, fixed reduction trees, integer accumulation) follow once Part A has been reviewed."),
+            table([{"Part": "A", "Original prediction": capture.to_dict()["prediction"] if capture else "—", "Evidence": status}]),
+            final_contract, rationale,
+            mo.callout(mo.md("**Ready for the ledger.**" if _complete else "Capture Part A, choose a contract and write the rationale."), kind="success" if _complete else "warn"),
+        ])
+
+    tabs = mo.ui.tabs({"Part A": build_part_a(), "Synthesis": build_synthesis()})
     tabs
     return (audit,)
+
+
+# ZONE D · COMPLETION-GATED LEDGER
+@app.cell
+async def _(audit, final_contract, get_evidence, ledger, mo, rationale, track_id):
+    _captures = get_evidence()
+    _ready = audit.complete and final_contract.value is not None and bool(rationale.value.strip())
+    _saved_ok = False
+    _save_error = ""
+    if _ready:
+        try:
+            ledger.save(step="same_bits_training", design={
+                "schema_version": 1, "lab_id": "proposed_same_bits_training", "track_id": track_id,
+                "model_id": "same_bits_training_experiments",
+                "evidence": {part: capture.to_dict() for part, capture in _captures.items()},
+                "contract": final_contract.value, "rationale": rationale.value,
+            })
+            await ledger.flush()
+            _saved_ok = True
+        except Exception as exc:
+            _save_error = f"SAVE FAILED · {type(exc).__name__}: {exc}"
+    _status = "SAVED" if _saved_ok else (_save_error or "EVIDENCE IN PROGRESS")
+    mo.Html(f'<div class="lab-hud"><span class="hud-label">LAB</span><span class="hud-value">The Same-Bits Contract, Part 2</span><span aria-hidden="true">|</span><span style="flex:1"></span><span class="hud-label">STATUS</span><span class="hud-active">{_status}</span></div>')
+    return
 
 
 if __name__ == "__main__":
